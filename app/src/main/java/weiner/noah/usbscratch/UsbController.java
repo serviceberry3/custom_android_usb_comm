@@ -112,7 +112,7 @@ public class UsbController {
                 //request permission to access last USB device found in map, store result in permissionIntent
                 usbManager.requestPermission(d, pi);
             }
-        }
+        });
     }
 
     private void listDevices(IPermissionListener permissionListener) {
@@ -120,10 +120,37 @@ public class UsbController {
 
         //print out all connected USB devices found
         UsbDevice device = null;
+        int prodId, vendId;
+
         for (Map.Entry<String, UsbDevice> entry : devices.entrySet()) {
-            Toast.makeText(this, ((UsbDevice)entry.getValue()).getDeviceName(), Toast.LENGTH_SHORT).show();
-            device = entry.getValue();
+            device = (UsbDevice)entry.getValue();
+            prodId = device.getProductId();
+            vendId = device.getVendorId();
+
+            //print out the device found
+            Toast.makeText(mApplicationContext, "Found device:" + device.getDeviceName() + " with ID "+
+                    String.format("%04X:%04X", device.getVendorId(), device.getProductId()), Toast.LENGTH_SHORT).show();
+
+            //check to see if this device is Arduino we're looking for
+            if (vendId == VID && prodId == PID) {
+                Toast.makeText(mApplicationContext, "Device found: "+device.getDeviceName(), Toast.LENGTH_SHORT);
+
+                //if we don't have permission to access the device, error out
+                if (!mUsbManager.hasPermission(device)) {
+                    permissionListener.onPermissionDenied(device);
+                }
+                else {
+                    //start setting up the USB device in new thread
+                    startHandler(device);
+                    return;
+                }
+                break;
+            }
         }
+
+        //if reached here with no return, we couldn't lock onto a found device or couldn't find, ERROR
+        Log.e("USBERROR", "No more devices to list");
+        mConnectionHandler.onDeviceNotFound();
     }
 
     private static interface IPermissionListener {
