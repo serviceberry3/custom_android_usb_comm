@@ -35,76 +35,94 @@ public class UsbController {
         init();
     }
 
-    private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
+    private class PermissionReceiver extends BroadcastReceiver {
+        private final IPermissionListener permissionListener;
+
+        //constructor
+        public PermissionReceiver(IPermissionListener permissionListener) {
+            permissionListener = permissionListener;
+        }
+
+        @Override
         public void onReceive(Context context, Intent intent) {
+            //unregister this broadcast receiver
+            mApplicationContext.unregisterReceiver(this);
+
             String action = intent.getAction();
 
             //check to see if this action was regarding USB permission
             if (ACTION_USB_PERMISSION.equals(action)) {
-                synchronized (this) {
-                    //get the specific device through intent extra
-                    UsbDevice device = (UsbDevice)intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+                //check granted
+                boolean granted = intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false);
 
-                    //if permission given, then we can set up communication with the device
-                    if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                        if (device != null) {
-                            //call method to set up device communication
-                            UsbDeviceConnection connection = usbManager.openDevice(device);
+                //get the specific device through intent extra
+                UsbDevice device = (UsbDevice)intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
 
-                            UsbEndpoint endpoint = device.getInterface(0).getEndpoint(0);
-
-                            connection.claimInterface(device.getInterface(0), true);
-                            connection.bulkTransfer(endpoint, DATA, DATA.length, TIMEOUT);
+                //if permission was not granted, call permission denied with device
+                if (!granted) {
+                    permissionListener.onPermissionDenied(device);
+                }
+                else {
+                    //otherwise we can set up communication with the device
+                    Log.d("USBTAG", "Permission granted");
+                    //first check if device is null
+                    if (device!=null) {
+                        //make sure this is the Arduino
+                        if (device.getVendorId() == VID && device.getProductId() == PID) {
+                            //start USB setup in new thread
+                            startHandler(device);
                         }
-                    }
-                    else {
-                        Log.d("THISTAG", "permission denied for device " + device);
+                        else {
+                            //Arduino not present
+                            Log.e("USBERROR", "Arduino not found");
+                        }
                     }
                 }
             }
         }
-    };
-
-    HashMap<String, UsbDevice> devices = usbManager.getDeviceList();
-
-    //print out all connected USB devices found
-    UsbDevice device = null;
-        for (
-    Map.Entry<String, UsbDevice> entry : devices.entrySet()) {
-        Toast.makeText(this, ((UsbDevice)entry.getValue()).getDeviceName(), Toast.LENGTH_SHORT).show();
-        device = entry.getValue();
     }
 
-    //sends permission intent in the broadcast ("the getBroadcast method retrieves a PendingIntent that WILL perform a broadcast(it's waiting)")
-    PendingIntent permissionIntent = PendingIntent.getBroadcast(this, 0, new Intent(ACTION_USB_PERMISSION), 0);
 
-    IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
+    /*
+    call method to set up device communication
+        UsbDeviceConnection connection = usbManager.openDevice(device);
 
-    //register a broadcast receiver to listen
-    //Register a BroadcastReceiver to be run in the main activity thread. The receiver will be called with any
-    // broadcast Intent that matches filter, in the main application thread.
-    registerReceiver(usbReceiver, filter);
+        UsbEndpoint endpoint = device.getInterface(0).getEndpoint(0);
 
-    //request permission to access last USB device found in map, store result in permissionIntent
-        assert (!devices.isEmpty());
-        assert device != null;
+        connection.claimInterface(device.getInterface(0), true);
+        connection.bulkTransfer(endpoint, DATA, DATA.length, TIMEOUT);
+     */
 
-        if (device!=null) {
-        usbManager.requestPermission(device, permissionIntent);
-    }
-        else {
-        Log.d("TESTTAG", "Device came up NULL");
-    }
+
 
     private void init() {
-        enumerate(new IPermissionListener() {
+        listDevices(new IPermissionListener() {
             @Override
             public void onPermissionDenied(UsbDevice d) {
                 UsbManager usbManager = (UsbManager) mApplicationContext.getSystemService(Context.USB_SERVICE);
+
+                //sends permission intent in the broadcast ("the getBroadcast method retrieves a PendingIntent that WILL perform a broadcast(it's waiting)")
                 PendingIntent pi = PendingIntent.getBroadcast(mApplicationContext, 0, new Intent(ACTION_USB_PERMISSION), 0);
+
+                //register a broadcast receiver to listen
+                //Register a BroadcastReceiver to be run in the main activity thread. The receiver will be called with any
+                // broadcast Intent that matches filter, in the main application thread.
                 mApplicationContext.registerReceiver(mPermissionReceiver, new IntentFilter(ACTION_USB_PERMISSION));
+
+                //request permission to access last USB device found in map, store result in permissionIntent
                 usbManager.requestPermission(d, pi);
             }
+        }
+    }
+
+    private void listDevices(IPermissionListener permissionListener) {
+        HashMap<String, UsbDevice> devices = mUsbManager.getDeviceList();
+
+        //print out all connected USB devices found
+        UsbDevice device = null;
+        for (Map.Entry<String, UsbDevice> entry : devices.entrySet()) {
+            Toast.makeText(this, ((UsbDevice)entry.getValue()).getDeviceName(), Toast.LENGTH_SHORT).show();
+            device = entry.getValue();
         }
     }
 

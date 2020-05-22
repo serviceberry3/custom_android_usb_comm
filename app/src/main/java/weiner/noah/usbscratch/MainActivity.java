@@ -27,6 +27,8 @@ public class MainActivity extends AppCompatActivity {
     private static final int VID = 0x2341;
     private static final int PID = 0x0043;
 
+
+    //implement the interface/create an instance of it here
     private final IUsbConnectionHandler mConnectionHandler = new IUsbConnectionHandler() {
         @Override
         public void onUsbStopped() {
