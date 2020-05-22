@@ -14,6 +14,9 @@ import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbManager;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
+import android.widget.Button;
+import android.widget.SeekBar;
 import android.widget.Toast;
 
 import java.util.HashMap;
@@ -24,32 +27,23 @@ public class MainActivity extends AppCompatActivity {
     private static final int VID = 0x2341;
     private static final int PID = 0x0043;
 
-    private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
-        public void onReceive(Context context, Intent intent) {
-            String action = intent.getAction();
+    private final IUsbConnectionHandler mConnectionHandler = new IUsbConnectionHandler() {
+        @Override
+        public void onUsbStopped() {
+            Log.e("USBTAG", "Usb has stopped");
+        }
 
-            //check to see if this action was regarding USB permission
-            if (ACTION_USB_PERMISSION.equals(action)) {
-                synchronized (this) {
-                    //get the specific device through intent extra
-                    UsbDevice device = (UsbDevice)intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
+        @Override
+        public void onErrorLooperRunningAlready() {
+            Log.e("USBTAG", "Looper already running")
+        }
 
-                    //if permission given, then we can set up communication with the device
-                    if (intent.getBooleanExtra(UsbManager.EXTRA_PERMISSION_GRANTED, false)) {
-                        if (device != null) {
-                            //call method to set up device communication
-                            UsbDeviceConnection connection = usbManager.openDevice(device);
-
-                            UsbEndpoint endpoint = device.getInterface(0).getEndpoint(0);
-
-                            connection.claimInterface(device.getInterface(0), true);
-                            connection.bulkTransfer(endpoint, DATA, DATA.length, TIMEOUT);
-                        }
-                    }
-                    else {
-                        Log.d("THISTAG", "permission denied for device " + device);
-                    }
-                }
+        @Override
+        public void onDeviceNotFound() {
+            //stop the controller and set it to null
+            if (usbController!=null) {
+                usbController.stop();
+                usbController=null;
             }
         }
     };
@@ -62,36 +56,46 @@ public class MainActivity extends AppCompatActivity {
 
         if (usbController == null) {
             //if there's no usb controller, create one now
-            usbController = new UsbController(this, mConnectionHandler)
-        }
-        HashMap<String, UsbDevice> devices = usbManager.getDeviceList();
-
-        //print out all connected USB devices found
-        UsbDevice device = null;
-        for (Map.Entry<String, UsbDevice> entry : devices.entrySet()) {
-            Toast.makeText(this, ((UsbDevice)entry.getValue()).getDeviceName(), Toast.LENGTH_SHORT).show();
-            device = entry.getValue();
+            usbController = new UsbController(this, mConnectionHandler, VID, PID);
         }
 
-        //sends permission intent in the broadcast ("the getBroadcast method retrieves a PendingIntent that WILL perform a broadcast(it's waiting)")
-        PendingIntent permissionIntent = PendingIntent.getBroadcast(this, 0, new Intent(ACTION_USB_PERMISSION), 0);
+        //set up the seekbar listener
+        ((SeekBar)findViewById(R.id.seekBar1)).setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+            }
 
-        IntentFilter filter = new IntentFilter(ACTION_USB_PERMISSION);
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+            }
 
-        //register a broadcast receiver to listen
-        //Register a BroadcastReceiver to be run in the main activity thread. The receiver will be called with any
-        // broadcast Intent that matches filter, in the main application thread.
-        registerReceiver(usbReceiver, filter);
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                //if the change is from the user, we need to send update to Arduino
+                if (fromUser) {
+                    if (usbController!=null) {
+                        //send over one byte that's a bitwise and of progress and 11111111
+                        //in other words, convert progress to a whole 8 bits
+                        usbController.send((byte) (progress & 0xFF));
+                    }
+                }
+            }
+        });
 
-        //request permission to access last USB device found in map, store result in permissionIntent
-        assert (!devices.isEmpty());
-        assert device != null;
-
-        if (device!=null) {
-            usbManager.requestPermission(device, permissionIntent);
-        }
-        else {
-            Log.d("TESTTAG", "Device came up NULL");
-        }
+        //set up the button click listener
+        ((Button)findViewById(R.id.button1)).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (usbController==null) {
+                    //if we don't already have controller set up, do it now
+                    usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID);
+                }
+                else {
+                    //scrap old controller and "reset" the controller by making new one
+                    usbController.stop();
+                    usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID);
+                }
+            }
+        });
     }
 }
