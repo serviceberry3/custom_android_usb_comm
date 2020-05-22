@@ -25,6 +25,17 @@ public class UsbController {
     private final int PID;
     protected static final String ACTION_USB_PERMISSION = "weiner.noah.USB_PERMISSION";
 
+    //instantiate a new IPermissionReceiver interface, implementing the perm denied fxn
+    IPermissionListener mPermissionListener = new IPermissionListener() {
+        @Override
+        public void onPermissionDenied(UsbDevice d) {
+            Log.e("USBERROR", "Permission denied for device " + d.getDeviceId());
+        }
+    };
+
+    //instantiate a new PermissionReceiver for registering in init()
+    private BroadcastReceiver mPermissionReceiver = new PermissionReceiver(mPermissionListener);
+
 
     public UsbController(Activity parentActivity, IUsbConnectionHandler connectionHandler, int vid, int pid) {
         mApplicationContext = parentActivity.getApplicationContext();
@@ -39,8 +50,8 @@ public class UsbController {
         private final IPermissionListener permissionListener;
 
         //constructor
-        public PermissionReceiver(IPermissionListener permissionListener) {
-            permissionListener = permissionListener;
+        public PermissionReceiver(IPermissionListener listener) {
+            permissionListener = listener;
         }
 
         @Override
@@ -156,5 +167,4 @@ public class UsbController {
     private static interface IPermissionListener {
         void onPermissionDenied(UsbDevice d);
     }
-
 }
