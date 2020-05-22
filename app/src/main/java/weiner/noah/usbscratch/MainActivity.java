@@ -2,6 +2,7 @@ package weiner.noah.usbscratch;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import android.app.Activity;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -19,11 +20,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
-    private static final String ACTION_USB_PERMISSION = "com.android.example.USB_PERMISSION";
-    private UsbManager usbManager;
-    String YOUR_DEVICE_NAME;
-    byte[] DATA= {0, 0};
-    int TIMEOUT=0;
+    private UsbController usbController;
+    private static final int VID = 0x2341;
+    private static final int PID = 0x0043;
 
     private final BroadcastReceiver usbReceiver = new BroadcastReceiver() {
         public void onReceive(Context context, Intent intent) {
@@ -57,12 +56,14 @@ public class MainActivity extends AppCompatActivity {
 
 
     @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        usbManager = (UsbManager) MainActivity.this.getSystemService(Context.USB_SERVICE);
+    public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-
+        if (usbController == null) {
+            //if there's no usb controller, create one now
+            usbController = new UsbController(this, mConnectionHandler)
+        }
         HashMap<String, UsbDevice> devices = usbManager.getDeviceList();
 
         //print out all connected USB devices found
@@ -86,6 +87,11 @@ public class MainActivity extends AppCompatActivity {
         assert (!devices.isEmpty());
         assert device != null;
 
-        usbManager.requestPermission(device, permissionIntent);
+        if (device!=null) {
+            usbManager.requestPermission(device, permissionIntent);
+        }
+        else {
+            Log.d("TESTTAG", "Device came up NULL");
+        }
     }
 }
