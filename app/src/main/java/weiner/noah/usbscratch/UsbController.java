@@ -6,9 +6,11 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.hardware.usb.UsbConstants;
 import android.hardware.usb.UsbDevice;
 import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
+import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.util.Log;
 import android.widget.Toast;
@@ -93,19 +95,6 @@ public class UsbController {
         }
     }
 
-
-    /*
-    call method to set up device communication
-        UsbDeviceConnection connection = usbManager.openDevice(device);
-
-        UsbEndpoint endpoint = device.getInterface(0).getEndpoint(0);
-
-        connection.claimInterface(device.getInterface(0), true);
-        connection.bulkTransfer(endpoint, DATA, DATA.length, TIMEOUT);
-     */
-
-
-
     private void init() {
         listDevices(new IPermissionListener() {
             @Override
@@ -144,7 +133,7 @@ public class UsbController {
 
             //check to see if this device is Arduino we're looking for
             if (vendId == VID && prodId == PID) {
-                Toast.makeText(mApplicationContext, "Device found: "+device.getDeviceName(), Toast.LENGTH_SHORT);
+                Toast.makeText(mApplicationContext, "Device found: "+device.getDeviceName(), Toast.LENGTH_SHORT).show();
 
                 //if we don't have permission to access the device, error out
                 if (!mUsbManager.hasPermission(device)) {
@@ -167,4 +156,90 @@ public class UsbController {
     private static interface IPermissionListener {
         void onPermissionDenied(UsbDevice d);
     }
+
+    //This is the meat. We set up the USB communication interface similar to how we did in the PC to Arduino interface
+
+    //an empty array is less overhead space than an actual instantiation of a new Object()
+    private static final Object[] sSendLock = new Object[][];
+    private boolean mStop = false;
+
+    //the byte for sending
+    private byte mData = 0x00;
+
+    private class UsbRunnable implements Runnable {
+        private final UsbDevice device;
+
+        //constructor
+        UsbRunnable(UsbDevice dev) {
+            device = dev;
+        }
+
+        @Override
+        //implement main USB functionality
+        public void run() {
+            //open communication with the device
+            UsbDeviceConnection connection = mUsbManager.openDevice(device);
+
+            UsbInterface usb2serial = device.getInterface(1);
+            //claim interface 1 (Usb-serial) of the Duino, disconnecting kernel driver if necessary
+            if (!connection.claimInterface(usb2serial, true)) {
+                //if we can't claim exclusive access to this UART line, then FAIL
+                return;
+            }
+
+            //ARDUINO SPECIFIC INITIALIZATION - USB-Serial conversion for Arduino
+
+            //set control line state
+            connection.controlTransfer(0x21, 34, 0, 0, null, 0, 0);
+
+            //set line encoding: 9600 bits/sec, 8data bits, no parity bit, 1 stop bit for UART
+            connection.controlTransfer(0x21, 32, 0, 0, new byte[] { (byte) 0x80,
+                    0x25, 0x00, 0x00, 0x00, 0x00, 0x08 }, 7, 0);
+
+            UsbEndpoint in = null;
+            UsbEndpoint out = null;
+
+            //iterate through all USB endpoints on this interface, looking for bulk transfer endpoints
+            for (int i=0; i<usb2serial.getEndpointCount(); i++) {
+                UsbEndpoint thisEndpoint = usb2serial.getEndpoint(i);
+                if (thisEndpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
+                    //found bulk endpoint, now distinguish which are read and write points
+                    if (thisEndpoint.getDirection() == UsbConstants.USB_DIR_IN) {
+                        in = thisEndpoint;
+                    }
+                    else {
+                        out = thisEndpoint;
+                    }
+                }
+            }
+
+            //data transferring loop
+            while (true) {
+                synchronized (sSendLock) {//create an output queue
+                    try {
+                        //have this thread wait until another thread invokes notify(sSendLock)
+                        sSendLock.wait();
+                    }
+                    catch (InterruptedException e) {
+                        //on interrupt exception, if stop is set, then call onStopped()
+                        if (mStop) {
+                            mConnectionHandler.onUsbStopped();
+                            return;
+                        }
+                        e.printStackTrace();
+                    }
+                }
+
+                //transfer the byte of length 1
+                connection.bulkTransfer(out, new byte[] {mData}, 1, 0);
+
+                if (mStop) {
+                    mConnectionHandler.onUsbStopped();
+                    return;
+                }
+            }
+        }
+    }
 }
+
+
