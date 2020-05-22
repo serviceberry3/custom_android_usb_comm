@@ -27,6 +27,13 @@ public class UsbController {
     private final int PID;
     protected static final String ACTION_USB_PERMISSION = "weiner.noah.USB_PERMISSION";
 
+
+    //constant variable for the UsbRunnable (data transfer loop)
+    private UsbRunnable mLoop;
+
+    //separate thread for usb data transfer
+    private Thread mUsbThread;
+
     //instantiate a new IPermissionReceiver interface, implementing the perm denied fxn
     IPermissionListener mPermissionListener = new IPermissionListener() {
         @Override
@@ -160,7 +167,7 @@ public class UsbController {
     //This is the meat. We set up the USB communication interface similar to how we did in the PC to Arduino interface
 
     //an empty array is less overhead space than an actual instantiation of a new Object()
-    private static final Object[] sSendLock = new Object[][];
+    private static final Object[] sSendLock = new Object[]{};
     private boolean mStop = false;
 
     //the byte for sending
@@ -239,6 +246,61 @@ public class UsbController {
                 }
             }
         }
+    }
+
+    //function to send a byte of data (wakes up data transfer thread)
+    public void send (byte data) {
+        mData = data;
+        synchronized (sSendLock) {
+            //wake up sSendLock for bulk transfer
+            sSendLock.notify();
+        }
+    }
+
+    //stop usb data transfer
+    public void stop() {
+        //flag the thread to stop
+        mStop = true;
+        synchronized (sSendLock) {
+            //wake up the data transfer thread to make it return
+            sSendLock.notify();
+        }
+        //terminate the data transfer thread by joining it to main UI thread
+        try {
+            if (mUsbThread!=null)
+                mUsbThread.join();
+        }
+        catch (InterruptedException e) {
+            Log.e("THREADERROR", String.valueOf(e));
+        }
+
+        //reset stop flag, current usbrunnable instance, and data thread
+        mStop = false;
+        mLoop = null;
+        mUsbThread = null;
+
+        //try to unregister the permission receiver
+        try {
+            mApplicationContext.unregisterReceiver(mPermissionReceiver);
+        }
+        catch (IllegalArgumentException e) {};
+    }
+
+    //start up a new thread for USB comms with the given device
+    private void startHandler(UsbDevice device) {
+        if (mLoop !=null) {
+            //USB data transfer thread already running
+            mConnectionHandler.onErrorLooperRunningAlready();
+            return;
+        }
+        //make new UsbRunnable and thread for comms with the device
+        mLoop = new UsbRunnable(device);
+
+        //assign the new runnable to new thread
+        mUsbThread = new Thread(mLoop);
+
+        //start new thread in background
+        mUsbThread.start();
     }
 }
 

@@ -37,7 +37,7 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         public void onErrorLooperRunningAlready() {
-            Log.e("USBTAG", "Looper already running")
+            Log.e("USBTAG", "Looper already running");
         }
 
         @Override
