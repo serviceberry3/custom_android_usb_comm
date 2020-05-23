@@ -57,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         if (usbController == null) {
-            //if there's no usb controller, create one now
+            //if there's no usb controller, create one now using the connection handler interface we implemented above and the vendor and product IDs we want for Arduino
             usbController = new UsbController(this, mConnectionHandler, VID, PID);
         }
 
@@ -96,6 +96,47 @@ public class MainActivity extends AppCompatActivity {
                     //scrap old controller and "reset" the controller by making new one
                     usbController.stop();
                     usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID);
+                }
+            }
+        });
+
+        //set up LED button click listener
+        final Button ledButton = ((Button)findViewById(R.id.led_button));
+
+        ledButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                //make sure we've initialized a controller; if not, we need to open one
+                if (usbController==null) {
+                    Toast.makeText(MainActivity.this, "Please open a connection first using List Devices button.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+
+                if (ledButton.getText().equals("LED Off (Arduino Pin 2)")) {
+                    usbController.send((byte)0x00);
+                    ledButton.setText("LED On (Arduino Pin 2)");
+                }
+                else {
+                    usbController.send((byte) 0xFF);
+                    ledButton.setText("LED Off (Arduino Pin 2)");
+                }
+            }
+        });
+
+        //set up receive data click listener
+        ((Button)findViewById(R.id.receive_button)).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (usbController==null) {
+                    Toast.makeText(MainActivity.this, "Please open a connection first using List Devices button.", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                usbController.receive();
+                if (usbController.dataIn.length!=0) {
+                    Toast.makeText(MainActivity.this, String.format("Recieved: %d", (int) usbController.dataIn[0]), Toast.LENGTH_SHORT).show();
+                }
+                else {
+                    Toast.makeText(MainActivity.this, "No data was received from the Arduino.", Toast.LENGTH_SHORT).show();
                 }
             }
         });

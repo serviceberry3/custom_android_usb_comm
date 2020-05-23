@@ -26,6 +26,8 @@ public class UsbController {
     private final int VID;
     private final int PID;
     protected static final String ACTION_USB_PERMISSION = "weiner.noah.USB_PERMISSION";
+    public volatile int direction=0;
+    public volatile int transferring=0;
 
 
     //constant variable for the UsbRunnable (data transfer loop)
@@ -90,7 +92,7 @@ public class UsbController {
                         //make sure this is the Arduino
                         if (device.getVendorId() == VID && device.getProductId() == PID) {
                             //start USB setup in new thread
-                            startHandler(device);
+                            startDataTransferThreads(device);
                         }
                         else {
                             //Arduino not present
@@ -148,7 +150,7 @@ public class UsbController {
                 }
                 else {
                     //start setting up the USB device in new thread
-                    startHandler(device);
+                    startDataTransferThreads(device);
                     return;
                 }
                 break;
@@ -173,13 +175,14 @@ public class UsbController {
     //the byte for sending
     private byte mData = 0x00;
 
+    //public data received from Arduino for parsing
+    public byte[] dataIn = new byte[1];
+
     private class UsbRunnable implements Runnable {
         private final UsbDevice device;
 
         //constructor
-        UsbRunnable(UsbDevice dev) {
-            device = dev;
-        }
+        UsbRunnable(UsbDevice dev) {device = dev;}
 
         @Override
         //implement main USB functionality
@@ -220,30 +223,45 @@ public class UsbController {
                 }
             }
 
+
             //data transferring loop
             while (true) {
-                synchronized (sSendLock) {//create an output queue
-                    try {
-                        //have this thread wait until another thread invokes notify(sSendLock)
-                        sSendLock.wait();
-                    }
-                    catch (InterruptedException e) {
-                        //on interrupt exception, if stop is set, then call onStopped()
-                        if (mStop) {
-                            mConnectionHandler.onUsbStopped();
-                            return;
+                //synchronized means only one thread at a time can do this stuff. Basically no other thread can do stuff to the sSendLock object because this thread has the lock on it
+                    synchronized (sSendLock) { //create an output queue
+                        try {
+                            //have this thread wait until another thread invokes notify (sSendLock)
+                            sSendLock.wait();
+                        } catch (InterruptedException e) {
+                            //on interrupt exception, if stop is set, then call onStopped()
+                            if (mStop) {
+                                mConnectionHandler.onUsbStopped();
+                                return;
+                            }
+                            e.printStackTrace();
                         }
-                        e.printStackTrace();
                     }
-                }
-
-                //transfer the byte of length 1
-                connection.bulkTransfer(out, new byte[] {mData}, 1, 0);
-
-                if (mStop) {
-                    mConnectionHandler.onUsbStopped();
-                    return;
-                }
+                Log.e("THREAd", String.format("Value of direction is: %d", direction));
+                    if (mStop) {
+                        mConnectionHandler.onUsbStopped();
+                        transferring=0;
+                        return;
+                    }
+                    transferring=1;
+                    if (direction==1) {
+                        //transfer the byte of length 1, sending or receiving as specified
+                        connection.bulkTransfer(out, new byte[]{mData}, 1, 0);
+                    }
+                    else {
+                        //transfer the byte of length 1, sending or receiving as specified
+                        Log.e("TRANSFER", String.format("Begin transfer"));
+                        int bytesTransferred = connection.bulkTransfer(in, dataIn, 1, 500);
+                        Log.e("TRANSFER", String.format("Bytes transferred: %d", bytesTransferred));
+                        if (bytesTransferred<0) {
+                            mStop = true;
+                        }
+                    }
+                    Log.e("THREAd", "Setting transfer back to 0");
+                    transferring=0;
             }
         }
     }
@@ -251,10 +269,27 @@ public class UsbController {
     //function to send a byte of data (wakes up data transfer thread)
     public void send (byte data) {
         mData = data;
+        direction = 1;
         synchronized (sSendLock) {
             //wake up sSendLock for bulk transfer
             sSendLock.notify();
         }
+    }
+
+    public void receive () {
+        direction = 0;
+        synchronized (sSendLock) {
+            //wake up sReceiveLock for receiving
+            sSendLock.notify();
+        }
+
+        /*
+        //wait until all receiving finished
+        while (transferring==1) {
+            ;
+        }
+
+         */
     }
 
     //stop usb data transfer
@@ -262,7 +297,7 @@ public class UsbController {
         //flag the thread to stop
         mStop = true;
         synchronized (sSendLock) {
-            //wake up the data transfer thread to make it return
+            //wake up both of the data transfer threads to make them return
             sSendLock.notify();
         }
         //terminate the data transfer thread by joining it to main UI thread
@@ -287,7 +322,7 @@ public class UsbController {
     }
 
     //start up a new thread for USB comms with the given device
-    private void startHandler(UsbDevice device) {
+    private void startDataTransferThreads(UsbDevice device) {
         if (mLoop !=null) {
             //USB data transfer thread already running
             mConnectionHandler.onErrorLooperRunningAlready();
