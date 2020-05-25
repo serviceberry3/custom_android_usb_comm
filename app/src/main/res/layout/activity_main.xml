@@ -44,6 +44,6 @@
         android:id="@+id/test"
         android:layout_below="@+id/receive_button"
         android:layout_centerHorizontal="true"
-        android:text="Received: "
+        android:text="Received LED status: "
         android:textSize="20dp"/>
 </RelativeLayout>

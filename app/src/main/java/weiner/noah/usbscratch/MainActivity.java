@@ -131,7 +131,7 @@ public class MainActivity extends AppCompatActivity {
                     usbController.send((byte) 0xFF);
                     ledButton.setText("LED Off (Arduino Pin 2)");
                 }
-                ((TextView)findViewById(R.id.test)).append(String.format("%c ", usbController.dataIn[0]));
+                //((TextView)findViewById(R.id.test)).append(String.format("%c ", usbController.dataIn[0]));
             }
         });
 
@@ -147,7 +147,6 @@ public class MainActivity extends AppCompatActivity {
                 usbController.receive();
                 if (usbController.dataIn.length!=0) {
                     Toast.makeText(MainActivity.this, String.format("Received: %x", usbController.dataIn[0]), Toast.LENGTH_SHORT).show();
-                    ((TextView)findViewById(R.id.test)).append(String.format("%c ", usbController.dataIn[0]));
                 }
                 else {
                     Toast.makeText(MainActivity.this, "No data was received from the Arduino.", Toast.LENGTH_SHORT).show();

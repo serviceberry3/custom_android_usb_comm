@@ -38,6 +38,7 @@ public class UsbController {
     public final Activity activity;
     public int error;
 
+    public byte b;
 
     //constant variable for the UsbRunnable (data transfer loop)
     private UsbRunnable mLoop;
@@ -232,7 +233,7 @@ public class UsbController {
     private byte mData = 0x00;
 
     //public data received from Arduino for parsing
-    public volatile byte[] dataIn = new byte[1];
+    public byte[] dataIn = new byte[1];
 
     private class UsbRunnable implements Runnable {
         private final UsbDevice device;
@@ -414,10 +415,11 @@ public class UsbController {
     }
 
     private class ReadRunnable implements Runnable {
+        private byte[] incomingData = new byte[1];
         @Override
         public void run() {
             //queue up
-            ByteBuffer buffer = ByteBuffer.wrap(dataIn);
+            ByteBuffer buffer = ByteBuffer.allocate(1);
 
             UsbRequest request = new UsbRequest();
             request.initialize(connection, in);
@@ -429,7 +431,18 @@ public class UsbController {
                     // wait for this request to be completed
                     // at this point buffer contains the data received
                     //Log.e("BUFFER", String.format("Position %d", buffer.position()));
-                    Log.d("BUFFER", String.format("Got: Hex value %x", dataIn[0]));
+                    Log.d("BUFFER", String.format("Got: Hex value %x", buffer.get(0)));
+                    if (buffer.get(0)!=0x00) {
+                        b = buffer.get(0);
+                        Log.d("BUFFDATA", String.format("Valid character %c", b));
+                        activity.runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                ((TextView)activity.findViewById(R.id.test)).append(String.format("%c ", b));
+                            }
+                        });
+                    }
+
                 }
             }
         }
