@@ -16,18 +16,21 @@ import android.util.Log;
 import android.widget.Toast;
 
 import java.nio.channels.InterruptedByTimeoutException;
+import java.time.chrono.MinguoChronology;
 import java.util.HashMap;
 import java.util.Map;
 
 public class UsbController {
-    private final Context mApplicationContext;
-    private final UsbManager mUsbManager;
-    private final IUsbConnectionHandler mConnectionHandler;
+    public final Context mApplicationContext;
+    public final UsbManager mUsbManager;
+    public final IUsbConnectionHandler mConnectionHandler;
     private final int VID;
     private final int PID;
     protected static final String ACTION_USB_PERMISSION = "weiner.noah.USB_PERMISSION";
     public volatile int direction=0;
     public volatile int transferring=0;
+    public final Activity activity;
+    public int error;
 
 
     //constant variable for the UsbRunnable (data transfer loop)
@@ -48,12 +51,14 @@ public class UsbController {
     private BroadcastReceiver mPermissionReceiver = new PermissionReceiver(mPermissionListener);
 
 
-    public UsbController(Activity parentActivity, IUsbConnectionHandler connectionHandler, int vid, int pid) {
+    public UsbController(Activity parentActivity, IUsbConnectionHandler connectionHandler, int vid, int pid, Activity act) {
         mApplicationContext = parentActivity.getApplicationContext();
         mConnectionHandler = connectionHandler;
         mUsbManager = (UsbManager) mApplicationContext.getSystemService(Context.USB_SERVICE);
         VID = vid;
         PID = pid;
+        activity = act;
+        error=0;
         init();
     }
 
@@ -159,6 +164,7 @@ public class UsbController {
 
         //if reached here with no return, we couldn't lock onto a found device or couldn't find, ERROR
         Log.e("USBERROR", "No more devices to list");
+        error=1;
         mConnectionHandler.onDeviceNotFound();
     }
 
@@ -176,7 +182,7 @@ public class UsbController {
     private byte mData = 0x00;
 
     //public data received from Arduino for parsing
-    public byte[] dataIn = new byte[1];
+    public byte[] dataIn = new byte[64];
 
     private class UsbRunnable implements Runnable {
         private final UsbDevice device;
@@ -194,6 +200,7 @@ public class UsbController {
             //claim interface 1 (Usb-serial) of the Duino, disconnecting kernel driver if necessary
             if (!connection.claimInterface(usb2serial, true)) {
                 //if we can't claim exclusive access to this UART line, then FAIL
+                Log.e("CONNECTION", "Failed to claim exclusive access to the USB interface.");
                 return;
             }
 
@@ -215,14 +222,17 @@ public class UsbController {
                 if (thisEndpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
                     //found bulk endpoint, now distinguish which are read and write points
                     if (thisEndpoint.getDirection() == UsbConstants.USB_DIR_IN) {
+                        Log.d("ENDPTS", "Found in point");
+                        Log.d("ENDPTS", String.format("In address: %d", thisEndpoint.getAddress()));
                         in = thisEndpoint;
                     }
                     else {
+                        Log.d("ENDPTS", "Found out point");
+                        Log.d("ENDPTS", String.format("Out address: %d", thisEndpoint.getAddress()));
                         out = thisEndpoint;
                     }
                 }
             }
-
 
             //data transferring loop
             while (true) {
@@ -234,33 +244,34 @@ public class UsbController {
                         } catch (InterruptedException e) {
                             //on interrupt exception, if stop is set, then call onStopped()
                             if (mStop) {
+                                Log.e("ERROR", "InterruptedException in synchron");
                                 mConnectionHandler.onUsbStopped();
                                 return;
                             }
                             e.printStackTrace();
                         }
                     }
-                Log.e("THREAd", String.format("Value of direction is: %d", direction));
+                Log.e("THREAD", String.format("Value of direction is: %d", direction));
                     if (mStop) {
+                        Log.e("ERROR", "Stopped after notify()");
                         mConnectionHandler.onUsbStopped();
                         transferring=0;
                         return;
                     }
-                    transferring=1;
                     if (direction==1) {
                         //transfer the byte of length 1, sending or receiving as specified
                         connection.bulkTransfer(out, new byte[]{mData}, 1, 0);
                     }
                     else {
                         //transfer the byte of length 1, sending or receiving as specified
-                        Log.e("TRANSFER", String.format("Begin transfer"));
-                        int bytesTransferred = connection.bulkTransfer(in, dataIn, 1, 500);
-                        Log.e("TRANSFER", String.format("Bytes transferred: %d", bytesTransferred));
+                        Log.e("TRANSFER", "Beginning transfer...");
+                        int bytesTransferred = connection.bulkTransfer(in, dataIn, 64, 0);
+                        Log.e("TRANSFER", String.format("# of bytes transferred: %d", bytesTransferred));
                         if (bytesTransferred<0) {
                             mStop = true;
                         }
                     }
-                    Log.e("THREAd", "Setting transfer back to 0");
+                    Log.e("THREAD", "Setting |transferring| back to 0");
                     transferring=0;
             }
         }
@@ -268,6 +279,9 @@ public class UsbController {
 
     //function to send a byte of data (wakes up data transfer thread)
     public void send (byte data) {
+        if (mStop) {
+            return;
+        }
         mData = data;
         direction = 1;
         synchronized (sSendLock) {
@@ -277,19 +291,25 @@ public class UsbController {
     }
 
     public void receive () {
+        if (mStop) {
+            return;
+        }
         direction = 0;
         synchronized (sSendLock) {
             //wake up sReceiveLock for receiving
             sSendLock.notify();
         }
+        transferring=1;
+        Log.d("TRANSFERRING VAL", String.format("%d", transferring));
 
-        /*
         //wait until all receiving finished
         while (transferring==1) {
             ;
         }
-
-         */
+        for (byte thisByte : dataIn) {
+            Log.d("BYTEREAD", String.format("%x", thisByte));
+        }
+        Log.d("TRANSFERRING VAL", String.format("%d", transferring));
     }
 
     //stop usb data transfer

@@ -23,10 +23,9 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
-    private UsbController usbController;
+    public UsbController usbController;
     private static final int VID = 0x2341;
     private static final int PID = 0x0043;
-
 
     //implement the interface/create an instance of it here
     private final IUsbConnectionHandler mConnectionHandler = new IUsbConnectionHandler() {
@@ -44,8 +43,12 @@ public class MainActivity extends AppCompatActivity {
         public void onDeviceNotFound() {
             //stop the controller and set it to null
             if (usbController!=null) {
+                Log.d("NULL", "Came up not null");
                 usbController.stop();
                 usbController=null;
+            }
+            else {
+                Log.e("NULL", "Came up null");
             }
         }
     };
@@ -57,8 +60,9 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         if (usbController == null) {
+            Log.d("START", "LOOKING");
             //if there's no usb controller, create one now using the connection handler interface we implemented above and the vendor and product IDs we want for Arduino
-            usbController = new UsbController(this, mConnectionHandler, VID, PID);
+            usbController = new UsbController(this, mConnectionHandler, VID, PID, MainActivity.this);
         }
 
         //set up the seekbar listener
@@ -75,7 +79,10 @@ public class MainActivity extends AppCompatActivity {
             public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
                 //if the change is from the user, we need to send update to Arduino
                 if (fromUser) {
-                    if (usbController!=null) {
+                    if (usbController!=null && usbController.error==1) {
+                        Toast.makeText(MainActivity.this, "Please open a connection first using List Devices button.", Toast.LENGTH_SHORT).show();
+                    }
+                    else if (usbController!=null) {
                         //send over one byte that's a bitwise and of progress and 11111111
                         //in other words, convert progress to a whole 8 bits
                         usbController.send((byte) (progress & 0xFF));
@@ -84,18 +91,19 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        //set up the button click listener
+        //set up the button click listener for list devices
         ((Button)findViewById(R.id.button1)).setOnClickListener(new View.OnClickListener() {
+
             @Override
             public void onClick(View v) {
-                if (usbController==null) {
+                if (usbController!=null && usbController.error==1) {
                     //if we don't already have controller set up, do it now
-                    usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID);
+                    usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID, MainActivity.this);
                 }
                 else {
                     //scrap old controller and "reset" the controller by making new one
                     usbController.stop();
-                    usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID);
+                    usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID, MainActivity.this);
                 }
             }
         });
@@ -107,7 +115,9 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 //make sure we've initialized a controller; if not, we need to open one
-                if (usbController==null) {
+                //Log.d("LISTDEVICES", String.format("Pressed, controller direction is %d", usbController.direction));
+                if (usbController!=null && usbController.error==1) {
+                    Log.e("PRESS", "Pressed");
                     Toast.makeText(MainActivity.this, "Please open a connection first using List Devices button.", Toast.LENGTH_SHORT).show();
                     return;
                 }
@@ -127,13 +137,14 @@ public class MainActivity extends AppCompatActivity {
         ((Button)findViewById(R.id.receive_button)).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (usbController==null) {
+                if (usbController!=null && usbController.error==1) {
+                    Log.e("USBCONTROL", "NULL");
                     Toast.makeText(MainActivity.this, "Please open a connection first using List Devices button.", Toast.LENGTH_SHORT).show();
                     return;
                 }
                 usbController.receive();
                 if (usbController.dataIn.length!=0) {
-                    Toast.makeText(MainActivity.this, String.format("Recieved: %d", (int) usbController.dataIn[0]), Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, String.format("Received: %x", usbController.dataIn[0]), Toast.LENGTH_SHORT).show();
                 }
                 else {
                     Toast.makeText(MainActivity.this, "No data was received from the Arduino.", Toast.LENGTH_SHORT).show();
