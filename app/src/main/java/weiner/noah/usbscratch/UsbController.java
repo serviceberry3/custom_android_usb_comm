@@ -12,9 +12,12 @@ import android.hardware.usb.UsbDeviceConnection;
 import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
+import android.hardware.usb.UsbRequest;
 import android.util.Log;
+import android.widget.TextView;
 import android.widget.Toast;
 
+import java.nio.ByteBuffer;
 import java.nio.channels.InterruptedByTimeoutException;
 import java.time.chrono.MinguoChronology;
 import java.util.HashMap;
@@ -23,7 +26,10 @@ import java.util.Map;
 public class UsbController {
     public final Context mApplicationContext;
     public final UsbManager mUsbManager;
+    private UsbDevice device;
+    private UsbDeviceConnection connection;
     public final IUsbConnectionHandler mConnectionHandler;
+    private UsbEndpoint in, out;
     private final int VID;
     private final int PID;
     protected static final String ACTION_USB_PERMISSION = "weiner.noah.USB_PERMISSION";
@@ -35,9 +41,10 @@ public class UsbController {
 
     //constant variable for the UsbRunnable (data transfer loop)
     private UsbRunnable mLoop;
+    private ReadRunnable mReceiver;
 
     //separate thread for usb data transfer
-    private Thread mUsbThread;
+    private Thread mUsbThread, mReceiveThread;
 
     //instantiate a new IPermissionReceiver interface, implementing the perm denied fxn
     IPermissionListener mPermissionListener = new IPermissionListener() {
@@ -127,13 +134,57 @@ public class UsbController {
                 usbManager.requestPermission(d, pi);
             }
         });
+        if (error==0) {
+            //open communication with the device
+            connection = mUsbManager.openDevice(device);
+
+            UsbInterface usb2serial = device.getInterface(1);
+            //claim interface 1 (Usb-serial) of the Duino, disconnecting kernel driver if necessary
+            if (!connection.claimInterface(usb2serial, true)) {
+                //if we can't claim exclusive access to this UART line, then FAIL
+                Log.e("CONNECTION", "Failed to claim exclusive access to the USB interface.");
+                return;
+            }
+
+            //ARDUINO SPECIFIC INITIALIZATION - USB-Serial conversion for Arduino
+
+            //set control line state
+            connection.controlTransfer(0x21, 34, 0, 0, null, 0, 0);
+
+            //set line encoding: 9600 bits/sec, 8data bits, no parity bit, 1 stop bit for UART
+            connection.controlTransfer(0x21, 32, 0, 0, new byte[] { (byte) 0x80,
+                    0x25, 0x00, 0x00, 0x00, 0x00, 0x08 }, 7, 0);
+
+            in = null;
+            out = null;
+
+            //iterate through all USB endpoints on this interface, looking for bulk transfer endpoints
+            for (int i=0; i<usb2serial.getEndpointCount(); i++) {
+                UsbEndpoint thisEndpoint = usb2serial.getEndpoint(i);
+                if (thisEndpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
+                    //found bulk endpoint, now distinguish which are read and write points
+                    if (thisEndpoint.getDirection() == UsbConstants.USB_DIR_IN) {
+                        Log.d("ENDPTS", "Found in point");
+                        Log.d("ENDPTS", String.format("In address: %d", thisEndpoint.getAddress()));
+                        in = thisEndpoint;
+                    }
+                    else {
+                        Log.d("ENDPTS", "Found out point");
+                        Log.d("ENDPTS", String.format("Out address: %d", thisEndpoint.getAddress()));
+                        out = thisEndpoint;
+                    }
+                }
+            }
+            //start setting up the USB device in new thread
+            startDataTransferThreads(device);
+        }
     }
 
     private void listDevices(IPermissionListener permissionListener) {
         HashMap<String, UsbDevice> devices = mUsbManager.getDeviceList();
 
         //print out all connected USB devices found
-        UsbDevice device = null;
+        device = null;
         int prodId, vendId;
 
         for (Map.Entry<String, UsbDevice> entry : devices.entrySet()) {
@@ -147,6 +198,7 @@ public class UsbController {
 
             //check to see if this device is Arduino we're looking for
             if (vendId == VID && prodId == PID) {
+                Log.d("DEVICE", "Got it");
                 Toast.makeText(mApplicationContext, "Device found: "+device.getDeviceName(), Toast.LENGTH_SHORT).show();
 
                 //if we don't have permission to access the device, error out
@@ -154,8 +206,6 @@ public class UsbController {
                     permissionListener.onPermissionDenied(device);
                 }
                 else {
-                    //start setting up the USB device in new thread
-                    startDataTransferThreads(device);
                     return;
                 }
                 break;
@@ -182,61 +232,22 @@ public class UsbController {
     private byte mData = 0x00;
 
     //public data received from Arduino for parsing
-    public byte[] dataIn = new byte[64];
+    public volatile byte[] dataIn = new byte[1];
 
     private class UsbRunnable implements Runnable {
         private final UsbDevice device;
+        private final int sens;
 
         //constructor
-        UsbRunnable(UsbDevice dev) {device = dev;}
+        UsbRunnable(UsbDevice dev, int way) {device = dev; sens = way;}
 
         @Override
         //implement main USB functionality
         public void run() {
-            //open communication with the device
-            UsbDeviceConnection connection = mUsbManager.openDevice(device);
-
-            UsbInterface usb2serial = device.getInterface(1);
-            //claim interface 1 (Usb-serial) of the Duino, disconnecting kernel driver if necessary
-            if (!connection.claimInterface(usb2serial, true)) {
-                //if we can't claim exclusive access to this UART line, then FAIL
-                Log.e("CONNECTION", "Failed to claim exclusive access to the USB interface.");
-                return;
-            }
-
-            //ARDUINO SPECIFIC INITIALIZATION - USB-Serial conversion for Arduino
-
-            //set control line state
-            connection.controlTransfer(0x21, 34, 0, 0, null, 0, 0);
-
-            //set line encoding: 9600 bits/sec, 8data bits, no parity bit, 1 stop bit for UART
-            connection.controlTransfer(0x21, 32, 0, 0, new byte[] { (byte) 0x80,
-                    0x25, 0x00, 0x00, 0x00, 0x00, 0x08 }, 7, 0);
-
-            UsbEndpoint in = null;
-            UsbEndpoint out = null;
-
-            //iterate through all USB endpoints on this interface, looking for bulk transfer endpoints
-            for (int i=0; i<usb2serial.getEndpointCount(); i++) {
-                UsbEndpoint thisEndpoint = usb2serial.getEndpoint(i);
-                if (thisEndpoint.getType() == UsbConstants.USB_ENDPOINT_XFER_BULK) {
-                    //found bulk endpoint, now distinguish which are read and write points
-                    if (thisEndpoint.getDirection() == UsbConstants.USB_DIR_IN) {
-                        Log.d("ENDPTS", "Found in point");
-                        Log.d("ENDPTS", String.format("In address: %d", thisEndpoint.getAddress()));
-                        in = thisEndpoint;
-                    }
-                    else {
-                        Log.d("ENDPTS", "Found out point");
-                        Log.d("ENDPTS", String.format("Out address: %d", thisEndpoint.getAddress()));
-                        out = thisEndpoint;
-                    }
-                }
-            }
-
-            //data transferring loop
-            while (true) {
-                //synchronized means only one thread at a time can do this stuff. Basically no other thread can do stuff to the sSendLock object because this thread has the lock on it
+            if (sens==1) {
+                //data transferring loop
+                while (true) {
+                    //synchronized means only one thread at a time can do this stuff. Basically no other thread can do stuff to the sSendLock object because this thread has the lock on it
                     synchronized (sSendLock) { //create an output queue
                         try {
                             //have this thread wait until another thread invokes notify (sSendLock)
@@ -251,28 +262,69 @@ public class UsbController {
                             e.printStackTrace();
                         }
                     }
-                Log.e("THREAD", String.format("Value of direction is: %d", direction));
+                    Log.e("THREAD", String.format("Value of direction is: %d", direction));
                     if (mStop) {
                         Log.e("ERROR", "Stopped after notify()");
                         mConnectionHandler.onUsbStopped();
-                        transferring=0;
+                        transferring = 0;
                         return;
                     }
-                    if (direction==1) {
+                    if (direction == 1) {
                         //transfer the byte of length 1, sending or receiving as specified
                         connection.bulkTransfer(out, new byte[]{mData}, 1, 0);
+
+                        /*
+                        //queue up
+                        ByteBuffer buffer = ByteBuffer.wrap(dataIn);
+
+                        UsbRequest request = new UsbRequest();
+                        request.initialize(connection, in);
+
+                        if (request.queue(buffer, 1)) {
+                            Log.d("QUEUE", "WAITING FOR DATA...");
+                            connection.requestWait();
+                            // wait for this request to be completed
+                            // at this point buffer contains the data received
+                            //Log.e("BUFFER", String.format("Position %d", buffer.position()));
+                            Log.d("BUFFER", String.format("Got: Hex value %x", dataIn[0]));
+                        }
+                         */
                     }
                     else {
-                        //transfer the byte of length 1, sending or receiving as specified
-                        Log.e("TRANSFER", "Beginning transfer...");
-                        int bytesTransferred = connection.bulkTransfer(in, dataIn, 64, 0);
-                        Log.e("TRANSFER", String.format("# of bytes transferred: %d", bytesTransferred));
-                        if (bytesTransferred<0) {
-                            mStop = true;
-                        }
+                    /*
+                    //transfer the byte of length 1, sending or receiving as specified
+                    Log.e("TRANSFER", "Beginning transfer...");
+                    int bytesTransferred = connection.bulkTransfer(in, dataIn, 1, 1000);
+                    Log.e("TRANSFER", String.format("# of bytes transferred: %d", bytesTransferred));
+                    if (bytesTransferred<0) {
+                        mStop = true;
+                    }
+                    */
                     }
                     Log.e("THREAD", "Setting |transferring| back to 0");
-                    transferring=0;
+                    transferring = 0;
+                    }
+                }
+            else {
+                Log.d("QUEUE", "QUEUEING UP");
+                //queue up
+
+                ByteBuffer buffer = ByteBuffer.allocate(1);
+
+                UsbRequest request = new UsbRequest();
+                request.initialize(connection, in);
+
+                while (true) {
+                    if (request.queue(buffer, 1)) {
+                        Log.d("QUEUE", "WAITING FOR DATA...");
+                        connection.requestWait();
+                        // wait for this request to be completed
+                        // at this point buffer contains the data received
+                    }
+                    //Log.e("BUFFER", String.format("Position %d", buffer.position()));
+                    //Log.d("BUFFEr", String.format("Got: %c", buffer.get(0)));
+                    dataIn[0] = buffer.get(0);
+                }
             }
         }
     }
@@ -349,13 +401,38 @@ public class UsbController {
             return;
         }
         //make new UsbRunnable and thread for comms with the device
-        mLoop = new UsbRunnable(device);
+        mLoop = new UsbRunnable(device, 1);
+        mReceiver = new ReadRunnable();
 
         //assign the new runnable to new thread
         mUsbThread = new Thread(mLoop);
+        mReceiveThread = new Thread(mReceiver);
 
         //start new thread in background
         mUsbThread.start();
+        mReceiveThread.start();
+    }
+
+    private class ReadRunnable implements Runnable {
+        @Override
+        public void run() {
+            //queue up
+            ByteBuffer buffer = ByteBuffer.wrap(dataIn);
+
+            UsbRequest request = new UsbRequest();
+            request.initialize(connection, in);
+
+            while(true) {
+                if (request.queue(buffer, 1)) {
+                    Log.d("QUEUE", "WAITING FOR DATA...");
+                    connection.requestWait();
+                    // wait for this request to be completed
+                    // at this point buffer contains the data received
+                    //Log.e("BUFFER", String.format("Position %d", buffer.position()));
+                    Log.d("BUFFER", String.format("Got: Hex value %x", dataIn[0]));
+                }
+            }
+        }
     }
 }
 
