@@ -274,33 +274,17 @@ public class UsbController {
                         //transfer the byte of length 1, sending or receiving as specified
                         connection.bulkTransfer(out, new byte[]{mData}, 1, 0);
 
-                        /*
-                        //queue up
-                        ByteBuffer buffer = ByteBuffer.wrap(dataIn);
-
-                        UsbRequest request = new UsbRequest();
-                        request.initialize(connection, in);
-
-                        if (request.queue(buffer, 1)) {
-                            Log.d("QUEUE", "WAITING FOR DATA...");
-                            connection.requestWait();
-                            // wait for this request to be completed
-                            // at this point buffer contains the data received
-                            //Log.e("BUFFER", String.format("Position %d", buffer.position()));
-                            Log.d("BUFFER", String.format("Got: Hex value %x", dataIn[0]));
-                        }
-                         */
                     }
                     else {
-                    /*
-                    //transfer the byte of length 1, sending or receiving as specified
-                    Log.e("TRANSFER", "Beginning transfer...");
-                    int bytesTransferred = connection.bulkTransfer(in, dataIn, 1, 1000);
-                    Log.e("TRANSFER", String.format("# of bytes transferred: %d", bytesTransferred));
-                    if (bytesTransferred<0) {
-                        mStop = true;
-                    }
-                    */
+                        /*
+                        //transfer the byte of length 1, sending or receiving as specified
+                        Log.e("TRANSFER", "Beginning transfer...");
+                        int bytesTransferred = connection.bulkTransfer(in, dataIn, 1, 1000);
+                        Log.e("TRANSFER", String.format("# of bytes transferred: %d", bytesTransferred));
+                        if (bytesTransferred<0) {
+                            mStop = true;
+                        }
+                        */
                     }
                     Log.e("THREAD", "Setting |transferring| back to 0");
                     transferring = 0;
@@ -322,8 +306,6 @@ public class UsbController {
                         // wait for this request to be completed
                         // at this point buffer contains the data received
                     }
-                    //Log.e("BUFFER", String.format("Position %d", buffer.position()));
-                    //Log.d("BUFFEr", String.format("Got: %c", buffer.get(0)));
                     dataIn[0] = buffer.get(0);
                 }
             }
