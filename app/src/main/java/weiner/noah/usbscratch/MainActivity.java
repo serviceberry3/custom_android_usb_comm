@@ -61,7 +61,6 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         if (usbController == null) {
-            Log.d("START", "LOOKING");
             //if there's no usb controller, create one now using the connection handler interface we implemented above and the vendor and product IDs we want for Arduino
             usbController = new UsbController(this, mConnectionHandler, VID, PID, MainActivity.this);
         }
@@ -124,14 +123,15 @@ public class MainActivity extends AppCompatActivity {
                 }
 
                 if (ledButton.getText().equals("LED Off (Arduino Pin 2)")) {
+                    Log.d("MAINACT", "Sending data to Arduino...");
                     usbController.send((byte)0x00);
                     ledButton.setText("LED On (Arduino Pin 2)");
                 }
                 else {
+                    Log.d("MAINACT", "Sending data to Arduino...");
                     usbController.send((byte) 0xFF);
                     ledButton.setText("LED Off (Arduino Pin 2)");
                 }
-                //((TextView)findViewById(R.id.test)).append(String.format("%c ", usbController.dataIn[0]));
             }
         });
 

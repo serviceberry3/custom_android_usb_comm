@@ -93,23 +93,24 @@ public class UsbController {
                 //get the specific device through intent extra
                 UsbDevice device = (UsbDevice)intent.getParcelableExtra(UsbManager.EXTRA_DEVICE);
 
-                //if permission was not granted, call permission denied with device
+                //if permission was not granted, call onPermDenied method of the passed IPermissionListener interface to display Log error message
                 if (!granted) {
                     permissionListener.onPermissionDenied(device);
                 }
                 else {
                     //otherwise we can set up communication with the device
-                    Log.d("USBTAG", "Permission granted");
+                    Log.d("USBTAG", "Permission granted for the device");
+
                     //first check if device is null
                     if (device!=null) {
                         //make sure this is the Arduino
                         if (device.getVendorId() == VID && device.getProductId() == PID) {
-                            //start USB setup in new thread
-                            startDataTransferThreads(device);
+                            //locked onto the Arduino, now start the USB protocol setup
+                            openConnectionOnReceivedPermission();
                         }
                         else {
                             //Arduino not present
-                            Log.e("USBERROR", "Arduino not found");
+                            Log.e("USBERROR", "USB permission granted, but this device is not Arduino");
                         }
                     }
                 }
@@ -137,6 +138,9 @@ public class UsbController {
                 usbManager.requestPermission(d, pi); //extras that will be added to pi: EXTRA_DEVICE containing device passed, and EXTRA_PERMISSION_GRANTED containing bool of result
             }
         });
+    }
+
+    private void openConnectionOnReceivedPermission() {
         if (error==0) {
             //open communication with the device
             connection = mUsbManager.openDevice(device);
@@ -178,8 +182,12 @@ public class UsbController {
                     }
                 }
             }
+            Log.d("STARTTHREADS", "Starting data transfer threads...");
             //start setting up the USB device in new thread
             startDataTransferThreads(device);
+        }
+        else {
+            Log.d("ERROR", "Error found");
         }
     }
 
@@ -201,17 +209,20 @@ public class UsbController {
 
             //check to see if this device is Arduino we're looking for
             if (vendId == VID && prodId == PID) {
-                Log.d("DEVICE", "Got it");
+                Log.d("DEVICE", "listDevices found the Arduino");
                 Toast.makeText(mApplicationContext, "Device found: "+device.getDeviceName(), Toast.LENGTH_SHORT).show();
 
-                //if we don't have permission to access the device, try getting permission
+                //if we don't have permission to access the device, try getting permission by calling onPermDenied method of the passed IPermissionListener interface
                 if (!mUsbManager.hasPermission(device)) {
+                    Log.d("PERM", "Asking user for USB permission...");
                     permissionListener.onPermissionDenied(device);
-                }
-                else {
                     return;
                 }
-                break;
+                else {
+                    //start the setup and return
+                    openConnectionOnReceivedPermission();
+                    return;
+                }
             }
         }
 
@@ -419,6 +430,8 @@ public class UsbController {
             ByteBuffer buffer = ByteBuffer.allocate(1);
 
             UsbRequest request = new UsbRequest();
+
+            //intialize an asynchronous request for USB data from the Arduino
             request.initialize(connection, in);
 
             //wait for data to become available to receive
