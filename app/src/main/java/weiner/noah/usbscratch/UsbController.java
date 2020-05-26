@@ -121,18 +121,20 @@ public class UsbController {
         listDevices(new IPermissionListener() {
             @Override
             public void onPermissionDenied(UsbDevice d) {
+                //get a USB manager instance
                 UsbManager usbManager = (UsbManager) mApplicationContext.getSystemService(Context.USB_SERVICE);
 
                 //sends permission intent in the broadcast ("the getBroadcast method retrieves a PendingIntent that WILL perform a broadcast(it's waiting)")
-                PendingIntent pi = PendingIntent.getBroadcast(mApplicationContext, 0, new Intent(ACTION_USB_PERMISSION), 0);
+                //basically broadcasts the given Intent to all interested BroadcastReceivers
+                PendingIntent pi = PendingIntent.getBroadcast(mApplicationContext, 0, new Intent(ACTION_USB_PERMISSION), 0); //asynchronous, returns immediately
 
                 //register a broadcast receiver to listen
                 //Register a BroadcastReceiver to be run in the main activity thread. The receiver will be called with any
                 // broadcast Intent that matches filter, in the main application thread.
                 mApplicationContext.registerReceiver(mPermissionReceiver, new IntentFilter(ACTION_USB_PERMISSION));
 
-                //request permission to access last USB device found in map, store result in permissionIntent
-                usbManager.requestPermission(d, pi);
+                //request permission to access last USB device found in map, store result (success or failure) in permissionIntent, results in system dialog displayed
+                usbManager.requestPermission(d, pi); //extras that will be added to pi: EXTRA_DEVICE containing device passed, and EXTRA_PERMISSION_GRANTED containing bool of result
             }
         });
         if (error==0) {
@@ -202,7 +204,7 @@ public class UsbController {
                 Log.d("DEVICE", "Got it");
                 Toast.makeText(mApplicationContext, "Device found: "+device.getDeviceName(), Toast.LENGTH_SHORT).show();
 
-                //if we don't have permission to access the device, error out
+                //if we don't have permission to access the device, try getting permission
                 if (!mUsbManager.hasPermission(device)) {
                     permissionListener.onPermissionDenied(device);
                 }
@@ -215,10 +217,16 @@ public class UsbController {
 
         //if reached here with no return, we couldn't lock onto a found device or couldn't find, ERROR
         Log.e("USBERROR", "No more devices to list");
-        error=1;
+
+        //set error flag
+        error = 1;
+
+        //It's important to note that Java constructor's CANNOT return null (can't set the instance of the object to null when they return), so the onDeviceNotFound() method
+        //isn't sufficient for setting usbController back to null. Hence the error flag that we set above
         mConnectionHandler.onDeviceNotFound();
     }
 
+    //small interface for the USB permission listener
     private static interface IPermissionListener {
         void onPermissionDenied(UsbDevice d);
     }
@@ -299,6 +307,7 @@ public class UsbController {
                 UsbRequest request = new UsbRequest();
                 request.initialize(connection, in);
 
+                //wait for data to become available for receiving from the Arduino
                 while (true) {
                     if (request.queue(buffer, 1)) {
                         Log.d("QUEUE", "WAITING FOR DATA...");
@@ -341,6 +350,8 @@ public class UsbController {
         while (transferring==1) {
             ;
         }
+
+        //Log debugging statements
         for (byte thisByte : dataIn) {
             Log.d("BYTEREAD", String.format("%x", thisByte));
         }
@@ -355,19 +366,23 @@ public class UsbController {
             //wake up both of the data transfer threads to make them return
             sSendLock.notify();
         }
-        //terminate the data transfer thread by joining it to main UI thread
+        //terminate the data transfer thread by joining it to main UI thread, also terminate receiving thread
         try {
-            if (mUsbThread!=null)
+            if (mUsbThread!=null) {
                 mUsbThread.join();
+                mReceiveThread.join();
+            }
         }
         catch (InterruptedException e) {
             Log.e("THREADERROR", String.valueOf(e));
         }
 
-        //reset stop flag, current usbrunnable instance, and data thread
+        //reset stop flag, current usbrunnable and readrunnable instance, and both data transfer threads
         mStop = false;
         mLoop = null;
+        mReceiver = null;
         mUsbThread = null;
+        mReceiveThread = null;
 
         //try to unregister the permission receiver
         try {
@@ -391,7 +406,7 @@ public class UsbController {
         mUsbThread = new Thread(mLoop);
         mReceiveThread = new Thread(mReceiver);
 
-        //start new thread in background
+        //start new threads in background
         mUsbThread.start();
         mReceiveThread.start();
     }
@@ -406,13 +421,13 @@ public class UsbController {
             UsbRequest request = new UsbRequest();
             request.initialize(connection, in);
 
+            //wait for data to become available to receive
             while(true) {
                 if (request.queue(buffer, 1)) {
                     Log.d("QUEUE", "WAITING FOR DATA...");
                     connection.requestWait();
                     // wait for this request to be completed
                     // at this point buffer contains the data received
-                    //Log.e("BUFFER", String.format("Position %d", buffer.position()));
                     Log.d("BUFFER", String.format("Got: Hex value %x", buffer.get(0)));
                     if (buffer.get(0)!=0x00) {
                         b = buffer.get(0);
