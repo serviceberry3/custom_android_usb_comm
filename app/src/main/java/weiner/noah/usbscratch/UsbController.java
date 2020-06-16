@@ -153,14 +153,14 @@ public class UsbController {
                 return;
             }
 
-            //ARDUINO SPECIFIC INITIALIZATION - USB-Serial conversion for Arduino
 
-            //set control line state
+            //USB CONTROL INITIALIZATION
+
+            //set control line state, as defined in https://cscott.net/usb_dev/data/devclass/usbcdc11.pdf, p. 51
             connection.controlTransfer(0x21, 34, 0, 0, null, 0, 0);
 
             //set line encoding: 9600 bits/sec, 8data bits, no parity bit, 1 stop bit for UART
-            connection.controlTransfer(0x21, 32, 0, 0, new byte[] { (byte) 0x80,
-                    0x25, 0x00, 0x00, 0x00, 0x00, 0x08 }, 7, 0);
+            connection.controlTransfer(0x21, 32, 0, 0, new byte[] { (byte) 0x80, 0x25, 0x00, 0x00, 0x00, 0x00, 0x08 }, 7, 0);
 
             in = null;
             out = null;
@@ -282,7 +282,7 @@ public class UsbController {
                             e.printStackTrace();
                         }
                     }
-                    Log.e("THREAD", String.format("Value of direction is: %d", direction));
+                    Log.d("THREAD", String.format("Value of direction is: %d", direction));
                     if (mStop) {
                         Log.e("ERROR", "Stopped after notify()");
                         mConnectionHandler.onUsbStopped();
@@ -292,7 +292,6 @@ public class UsbController {
                     if (direction == 1) {
                         //transfer the byte of length 1, sending or receiving as specified
                         connection.bulkTransfer(out, new byte[]{mData}, 1, 0);
-
                     }
                     else {
                         /*
@@ -305,7 +304,7 @@ public class UsbController {
                         }
                         */
                     }
-                    Log.e("THREAD", "Setting |transferring| back to 0");
+                    Log.d("THREAD", "Setting |transferring| back to 0");
                     transferring = 0;
                     }
                 }
@@ -337,6 +336,8 @@ public class UsbController {
         if (mStop) {
             return;
         }
+
+        //set data out byte to the passed byte
         mData = data;
         direction = 1;
         synchronized (sSendLock) {
@@ -452,7 +453,6 @@ public class UsbController {
                             }
                         });
                     }
-
                 }
             }
         }

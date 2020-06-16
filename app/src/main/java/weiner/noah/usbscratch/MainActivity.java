@@ -25,8 +25,8 @@ import java.util.Map;
 
 public class MainActivity extends AppCompatActivity {
     public UsbController usbController;
-    private static final int VID = 0x2341;
-    private static final int PID = 0x0043;
+    private static final int VID = 0x0483;
+    private static final int PID = 0x5740;
 
     //implement the interface/create an instance of it here
     private final IUsbConnectionHandler mConnectionHandler = new IUsbConnectionHandler() {
@@ -124,12 +124,12 @@ public class MainActivity extends AppCompatActivity {
 
                 if (ledButton.getText().equals("LED Off (Arduino Pin 2)")) {
                     Log.d("MAINACT", "Sending data to Arduino...");
-                    usbController.send((byte)0x00);
+                    usbController.send((byte)0x30);
                     ledButton.setText("LED On (Arduino Pin 2)");
                 }
                 else {
                     Log.d("MAINACT", "Sending data to Arduino...");
-                    usbController.send((byte) 0xFF);
+                    usbController.send((byte) 0x31);
                     ledButton.setText("LED Off (Arduino Pin 2)");
                 }
             }
