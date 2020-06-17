@@ -20,7 +20,7 @@
         android:layout_gravity="center_horizontal"
         android:layout_centerHorizontal="true"
         android:layout_centerVertical="true"
-        android:text="List Devices" />
+        android:text="List Devices (Refresh)" />
 
     <Button
         android:id="@+id/led_button"
@@ -28,7 +28,7 @@
         android:layout_height="wrap_content"
         android:layout_below="@id/button1"
         android:layout_centerHorizontal="true"
-        android:text="LED On (Arduino Pin 2)" />
+        android:text="LED On (USB Device)" />
 
     <Button
         android:id="@+id/receive_button"
@@ -36,7 +36,7 @@
         android:layout_height="wrap_content"
         android:layout_below="@id/led_button"
         android:layout_centerHorizontal="true"
-        android:text="Receive" />
+        android:text="Receive (Deprecated)" />
 
     <TextView
         android:layout_width="wrap_content"
@@ -44,7 +44,7 @@
         android:id="@+id/test"
         android:layout_below="@+id/receive_button"
         android:layout_centerHorizontal="true"
-        android:text="Received LED status: "
+        android:text="Received echoed LED status: "
         android:textSize="20dp"/>
 
     <TextView

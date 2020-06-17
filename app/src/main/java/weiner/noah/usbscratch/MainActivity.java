@@ -44,7 +44,7 @@ public class MainActivity extends AppCompatActivity {
             //stop the controller and set it to null
             if (usbController!=null) {
                 Log.d("NULL", "Came up not null");
-                usbController.stop();
+                //usbController.stop();
                 usbController=null;
             }
             else {
@@ -97,6 +97,7 @@ public class MainActivity extends AppCompatActivity {
             public void onClick(View v) {
                 if (usbController!=null && usbController.error==1) {
                     //if we don't already have controller set up, do it now
+                    Log.d("DBUG", "Trying to find devices after none found last time...");
                     usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID, MainActivity.this);
                 }
                 else {
@@ -104,6 +105,7 @@ public class MainActivity extends AppCompatActivity {
                     assert usbController != null;
                     usbController.stop();
                     usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID, MainActivity.this);
+                    usbController.clearData();
                 }
             }
         });

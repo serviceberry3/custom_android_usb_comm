@@ -222,9 +222,9 @@ public class UsbController {
             Toast.makeText(mApplicationContext, "Found device:" + device.getDeviceName() + " with ID "+
                     String.format("%04X:%04X", device.getVendorId(), device.getProductId()), Toast.LENGTH_SHORT).show();
 
-            //check to see if this device is Arduino we're looking for
+            //check to see if this device is one we're looking for
             if (vendId == VID && prodId == PID) {
-                Log.d("DEVICE", "listDevices found the Arduino");
+                Log.d("DEVICE", "listDevices found the expected device");
                 Toast.makeText(mApplicationContext, "Device found: " + device.getDeviceName(), Toast.LENGTH_SHORT).show();
 
                 //if we don't have permission to access the device, try getting permission by calling onPermDenied method of the passed IPermissionListener interface
@@ -404,13 +404,15 @@ public class UsbController {
 
     //stop usb data transfer
     public void stop() {
-        Log.d("DBUG", "Welcome to stop function");
-
         synchronized (killLock) {
             mKillReceiver = true;
+
+            //ping a kill signal off of the STM32 over to the requestWait() blocking function
             send((byte) 0xFF);
+
+
             try {
-                //wait to make sure sending is done and receiver shut down
+                //wait to make sure sending of kill signal is done and receiver has shut down
                 killLock.wait();
             }
             catch (InterruptedException e) {
@@ -428,11 +430,13 @@ public class UsbController {
         //connection.close();
 
         //terminate the data transfer thread by joining it to main UI thread, also terminate receiving thread
-        try {
+        try { //cleaning up threads
             if (mUsbThread!=null) {
+                Log.d("DBUG", "Joining UsbThread...");
                 mUsbThread.join();
             }
             if (mReceiveThread!=null) {
+                Log.d("DBUG", "Joining ReceiveThread...");
                 mReceiveThread.join();
             }
         }
@@ -453,8 +457,19 @@ public class UsbController {
         }
         catch (IllegalArgumentException e) {
             e.printStackTrace();
-        };
+        }
+    }
 
+    public void clearData() {
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                ((TextView)activity.findViewById(R.id.received_time)).setText("Echo received timestamp: ");
+                ((TextView)activity.findViewById(R.id.latency)).setText("Approximate latency: ");
+                ((TextView)activity.findViewById(R.id.sent_time)).setText("Data sent timestamp: ");
+                ((TextView)activity.findViewById(R.id.test)).setText("Received echo LED status: ");
+            }
+        });
     }
 
     //start up a new thread for USB comms with the given device
@@ -524,6 +539,7 @@ public class UsbController {
                         });
                     }
 
+                    //if signal to kill has been sent by stop function, then end the thread so that we can reset
                     if (mKillReceiver) {
                         Log.d("DBUG", "Receiver flagged to stop, returning...");
                         mConnectionHandler.onUsbStopped();
