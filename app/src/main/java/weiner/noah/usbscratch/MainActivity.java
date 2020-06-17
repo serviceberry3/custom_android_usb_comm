@@ -19,7 +19,6 @@ import android.widget.Button;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
-
 import java.util.HashMap;
 import java.util.Map;
 
@@ -102,11 +101,16 @@ public class MainActivity extends AppCompatActivity {
                 }
                 else {
                     //scrap old controller and "reset" the controller by making new one
+                    assert usbController != null;
                     usbController.stop();
                     usbController = new UsbController(MainActivity.this, mConnectionHandler, VID, PID, MainActivity.this);
                 }
             }
         });
+
+        usbController.sendTime = (TextView) findViewById(R.id.sent_time);
+        usbController.receiveTime = (TextView) findViewById(R.id.received_time);
+        usbController.latencyText = (TextView) findViewById(R.id.latency);
 
         //set up LED button click listener
         final Button ledButton = ((Button)findViewById(R.id.led_button));

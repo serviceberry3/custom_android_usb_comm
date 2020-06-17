@@ -46,4 +46,32 @@
         android:layout_centerHorizontal="true"
         android:text="Received LED status: "
         android:textSize="20dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:layout_below="@+id/test"
+        android:id="@+id/sent_time"
+        android:text="Data sent timestamp: "
+        android:layout_centerHorizontal="true" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/sent_time"
+        android:text="Echo received timestamp: "
+        android:layout_centerHorizontal="true"
+        android:id="@+id/received_time"
+        android:layout_marginTop="20dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/received_time"
+        android:text="Approximate latency: "
+        android:layout_centerHorizontal="true"
+        android:id="@+id/latency"
+        android:layout_marginTop="20dp"/>
+
 </RelativeLayout>

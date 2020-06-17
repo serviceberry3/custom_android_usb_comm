@@ -13,21 +13,27 @@ import android.hardware.usb.UsbEndpoint;
 import android.hardware.usb.UsbInterface;
 import android.hardware.usb.UsbManager;
 import android.hardware.usb.UsbRequest;
+import android.os.Build;
 import android.util.Log;
+import android.view.View;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import androidx.annotation.RequiresApi;
+import androidx.annotation.RequiresPermission;
 
 import java.nio.ByteBuffer;
 import java.nio.channels.InterruptedByTimeoutException;
 import java.time.chrono.MinguoChronology;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 
 public class UsbController {
     public final Context mApplicationContext;
     public final UsbManager mUsbManager;
     private UsbDevice device;
-    private UsbDeviceConnection connection;
+    private volatile UsbDeviceConnection connection;
     public final IUsbConnectionHandler mConnectionHandler;
     private UsbEndpoint in, out;
     private final int VID;
@@ -38,11 +44,20 @@ public class UsbController {
     public final Activity activity;
     public int error;
 
+    //keep track of USB data transfer latency
+    private long sendTimeValue, receiveTimeValue;
+    private long latency;
+
+    //textviews for timestamps
+    public TextView sendTime, receiveTime, latencyText;
+
     public byte b;
 
     //constant variable for the UsbRunnable (data transfer loop)
     private UsbRunnable mLoop;
     private ReadRunnable mReceiver;
+
+    private volatile UsbRequest readingRequest;
 
     //separate thread for usb data transfer
     private Thread mUsbThread, mReceiveThread;
@@ -59,7 +74,7 @@ public class UsbController {
     private BroadcastReceiver mPermissionReceiver = new PermissionReceiver(mPermissionListener);
 
 
-    public UsbController(Activity parentActivity, IUsbConnectionHandler connectionHandler, int vid, int pid, Activity act) {
+    public UsbController (Activity parentActivity, IUsbConnectionHandler connectionHandler, int vid, int pid, Activity act) {
         mApplicationContext = parentActivity.getApplicationContext();
         mConnectionHandler = connectionHandler;
         mUsbManager = (UsbManager) mApplicationContext.getSystemService(Context.USB_SERVICE);
@@ -192,6 +207,7 @@ public class UsbController {
     }
 
     private void listDevices(IPermissionListener permissionListener) {
+        Log.d("DBUG", "Welcome to listDevices");
         HashMap<String, UsbDevice> devices = mUsbManager.getDeviceList();
 
         //print out all connected USB devices found
@@ -210,7 +226,7 @@ public class UsbController {
             //check to see if this device is Arduino we're looking for
             if (vendId == VID && prodId == PID) {
                 Log.d("DEVICE", "listDevices found the Arduino");
-                Toast.makeText(mApplicationContext, "Device found: "+device.getDeviceName(), Toast.LENGTH_SHORT).show();
+                Toast.makeText(mApplicationContext, "Device found: " + device.getDeviceName(), Toast.LENGTH_SHORT).show();
 
                 //if we don't have permission to access the device, try getting permission by calling onPermDenied method of the passed IPermissionListener interface
                 if (!mUsbManager.hasPermission(device)) {
@@ -246,7 +262,7 @@ public class UsbController {
 
     //an empty array is less overhead space than an actual instantiation of a new Object()
     private static final Object[] sSendLock = new Object[]{};
-    private boolean mStop = false;
+    private volatile boolean mStop = false;
 
     //the byte for sending
     private byte mData = 0x00;
@@ -272,7 +288,8 @@ public class UsbController {
                         try {
                             //have this thread wait until another thread invokes notify (sSendLock)
                             sSendLock.wait();
-                        } catch (InterruptedException e) {
+                        }
+                        catch (InterruptedException e) {
                             //on interrupt exception, if stop is set, then call onStopped()
                             if (mStop) {
                                 Log.e("ERROR", "InterruptedException in synchron");
@@ -284,7 +301,7 @@ public class UsbController {
                     }
                     Log.d("THREAD", String.format("Value of direction is: %d", direction));
                     if (mStop) {
-                        Log.e("ERROR", "Stopped after notify()");
+                        Log.e("ERROR", "Stopped after the sending thread was notify()ed, returning...");
                         mConnectionHandler.onUsbStopped();
                         transferring = 0;
                         return;
@@ -340,6 +357,17 @@ public class UsbController {
         //set data out byte to the passed byte
         mData = data;
         direction = 1;
+
+        //display sending timestamp
+        sendTimeValue = System.currentTimeMillis();
+
+        activity.runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                ((TextView)activity.findViewById(R.id.sent_time)).setText(String.format("Data sent timestamp: %d", sendTimeValue));
+            }
+        });
+
         synchronized (sSendLock) {
             //wake up sSendLock for bulk transfer
             sSendLock.notify();
@@ -355,7 +383,7 @@ public class UsbController {
             //wake up sReceiveLock for receiving
             sSendLock.notify();
         }
-        transferring=1;
+        transferring = 1;
         Log.d("TRANSFERRING VAL", String.format("%d", transferring));
 
         //wait until all receiving finished
@@ -372,21 +400,28 @@ public class UsbController {
 
     //stop usb data transfer
     public void stop() {
+        Log.d("DBUG", "Welcome to stop function");
         //flag the thread to stop
         mStop = true;
         synchronized (sSendLock) {
             //wake up both of the data transfer threads to make them return
             sSendLock.notify();
         }
+
+        readingRequest.close();
+        connection.close();
+
         //terminate the data transfer thread by joining it to main UI thread, also terminate receiving thread
         try {
             if (mUsbThread!=null) {
                 mUsbThread.join();
+            }
+            if (mReceiveThread!=null) {
                 mReceiveThread.join();
             }
         }
         catch (InterruptedException e) {
-            Log.e("THREADERROR", String.valueOf(e));
+            e.printStackTrace();
         }
 
         //reset stop flag, current usbrunnable and readrunnable instance, and both data transfer threads
@@ -400,7 +435,9 @@ public class UsbController {
         try {
             mApplicationContext.unregisterReceiver(mPermissionReceiver);
         }
-        catch (IllegalArgumentException e) {};
+        catch (IllegalArgumentException e) {
+            e.printStackTrace();
+        };
     }
 
     //start up a new thread for USB comms with the given device
@@ -423,6 +460,8 @@ public class UsbController {
         mReceiveThread.start();
     }
 
+
+
     private class ReadRunnable implements Runnable {
         private byte[] incomingData = new byte[1];
         @Override
@@ -430,16 +469,29 @@ public class UsbController {
             //queue up
             ByteBuffer buffer = ByteBuffer.allocate(1);
 
-            UsbRequest request = new UsbRequest();
+            readingRequest = new UsbRequest();
 
             //intialize an asynchronous request for USB data from the Arduino
-            request.initialize(connection, in);
+            readingRequest.initialize(connection, in);
 
             //wait for data to become available to receive
-            while(true) {
-                if (request.queue(buffer, 1)) {
+            while (true) {
+                if (readingRequest.queue(buffer, 1)) {
                     Log.d("QUEUE", "WAITING FOR DATA...");
                     connection.requestWait();
+
+                    //stamp time of data reception
+                    receiveTimeValue = System.currentTimeMillis();
+                    latency = receiveTimeValue - sendTimeValue;
+
+                    activity.runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            ((TextView)activity.findViewById(R.id.received_time)).setText(String.format("Echo received timestamp: %d", receiveTimeValue));
+                            ((TextView)activity.findViewById(R.id.latency)).setText(String.format("Approximate latency: %d ms", latency));
+                        }
+                    });
+
                     // wait for this request to be completed
                     // at this point buffer contains the data received
                     Log.d("BUFFER", String.format("Got: Hex value %x", buffer.get(0)));
@@ -452,6 +504,12 @@ public class UsbController {
                                 ((TextView)activity.findViewById(R.id.test)).append(String.format("%c ", b));
                             }
                         });
+                    }
+
+                    if (mStop) {
+                        Log.d("DBUG", "Receiver flagged to stop, returning...");
+                        mConnectionHandler.onUsbStopped();
+                        return;
                     }
                 }
             }
