@@ -33,14 +33,13 @@ public class UsbController {
     public final Context mApplicationContext;
     public final UsbManager mUsbManager;
     private UsbDevice device;
-    private volatile UsbDeviceConnection connection;
+    private UsbDeviceConnection connection;
     public final IUsbConnectionHandler mConnectionHandler;
     private UsbEndpoint in, out;
     private final int VID;
     private final int PID;
     protected static final String ACTION_USB_PERMISSION = "weiner.noah.USB_PERMISSION";
-    public volatile int direction=0;
-    public volatile int transferring=0;
+    private volatile int direction = 0, transferring = 0;
     public final Activity activity;
     public int error;
 
@@ -57,7 +56,7 @@ public class UsbController {
     private UsbRunnable mLoop;
     private ReadRunnable mReceiver;
 
-    private volatile UsbRequest readingRequest;
+    private UsbRequest readingRequest;
 
     //separate thread for usb data transfer
     private Thread mUsbThread, mReceiveThread;
@@ -262,7 +261,8 @@ public class UsbController {
 
     //an empty array is less overhead space than an actual instantiation of a new Object()
     private static final Object[] sSendLock = new Object[]{};
-    private volatile boolean mStop = false;
+    private static final Object[] killLock = new Object[]{};
+    private volatile boolean mStop = false, mKillReceiver = false;
 
     //the byte for sending
     private byte mData = 0x00;
@@ -280,7 +280,7 @@ public class UsbController {
         @Override
         //implement main USB functionality
         public void run() {
-            if (sens==1) {
+            if (sens == 1) {
                 //data transferring loop
                 while (true) {
                     //synchronized means only one thread at a time can do this stuff. Basically no other thread can do stuff to the sSendLock object because this thread has the lock on it
@@ -288,8 +288,7 @@ public class UsbController {
                         try {
                             //have this thread wait until another thread invokes notify (sSendLock)
                             sSendLock.wait();
-                        }
-                        catch (InterruptedException e) {
+                        } catch (InterruptedException e) {
                             //on interrupt exception, if stop is set, then call onStopped()
                             if (mStop) {
                                 Log.e("ERROR", "InterruptedException in synchron");
@@ -299,18 +298,22 @@ public class UsbController {
                             e.printStackTrace();
                         }
                     }
+
                     Log.d("THREAD", String.format("Value of direction is: %d", direction));
+
                     if (mStop) {
                         Log.e("ERROR", "Stopped after the sending thread was notify()ed, returning...");
                         mConnectionHandler.onUsbStopped();
                         transferring = 0;
                         return;
                     }
+
                     if (direction == 1) {
                         //transfer the byte of length 1, sending or receiving as specified
                         connection.bulkTransfer(out, new byte[]{mData}, 1, 0);
                     }
-                    else {
+
+                    else { //never reached
                         /*
                         //transfer the byte of length 1, sending or receiving as specified
                         Log.e("TRANSFER", "Beginning transfer...");
@@ -321,10 +324,11 @@ public class UsbController {
                         }
                         */
                     }
+
                     Log.d("THREAD", "Setting |transferring| back to 0");
                     transferring = 0;
-                    }
                 }
+            }
             else {
                 Log.d("QUEUE", "QUEUEING UP");
                 //queue up
@@ -401,15 +405,27 @@ public class UsbController {
     //stop usb data transfer
     public void stop() {
         Log.d("DBUG", "Welcome to stop function");
-        //flag the thread to stop
-        mStop = true;
+
+        synchronized (killLock) {
+            mKillReceiver = true;
+            send((byte) 0xFF);
+            try {
+                //wait to make sure sending is done and receiver shut down
+                killLock.wait();
+            }
+            catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }
+
         synchronized (sSendLock) {
-            //wake up both of the data transfer threads to make them return
+            //wake up sending thread to make it return
+            mStop = true;
             sSendLock.notify();
         }
 
-        readingRequest.close();
-        connection.close();
+        //readingRequest.close();
+        //connection.close();
 
         //terminate the data transfer thread by joining it to main UI thread, also terminate receiving thread
         try {
@@ -438,6 +454,7 @@ public class UsbController {
         catch (IllegalArgumentException e) {
             e.printStackTrace();
         };
+
     }
 
     //start up a new thread for USB comms with the given device
@@ -494,21 +511,27 @@ public class UsbController {
 
                     // wait for this request to be completed
                     // at this point buffer contains the data received
-                    Log.d("BUFFER", String.format("Got: Hex value %x", buffer.get(0)));
-                    if (buffer.get(0)!=0x00) {
-                        b = buffer.get(0);
-                        Log.d("BUFFDATA", String.format("Valid character %c", b));
+                    final byte firstChar = buffer.get(0);
+                    Log.d("BUFFER", String.format("Got: Hex value %x", firstChar));
+
+                    if (firstChar!=-1 && firstChar != 0x00) {
+                        Log.d("BUFFDATA", String.format("Valid character %c", firstChar));
                         activity.runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                ((TextView)activity.findViewById(R.id.test)).append(String.format("%c ", b));
+                                ((TextView)activity.findViewById(R.id.test)).append(String.format("%c ", firstChar));
                             }
                         });
                     }
 
-                    if (mStop) {
+                    if (mKillReceiver) {
                         Log.d("DBUG", "Receiver flagged to stop, returning...");
                         mConnectionHandler.onUsbStopped();
+
+                        synchronized ((killLock)) {
+                            killLock.notify();
+                        }
+
                         return;
                     }
                 }
