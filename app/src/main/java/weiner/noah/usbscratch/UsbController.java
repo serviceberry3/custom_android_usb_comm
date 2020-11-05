@@ -316,9 +316,11 @@ public class UsbController {
                     else { //never reached
                         /*
                         //transfer the byte of length 1, sending or receiving as specified
-                        Log.e("TRANSFER", "Beginning transfer...");
-                        int bytesTransferred = connection.bulkTransfer(in, dataIn, 1, 1000);
-                        Log.e("TRANSFER", String.format("# of bytes transferred: %d", bytesTransferred));
+                        Log.e("TRANSFER", "Beginning receive transfer...");
+
+                        int bytesTransferred = connection.bulkTransfer(in, dataIn, 22, 1000);
+
+                        Log.e("TRANSFER", String.format("# of bytes received: %d", bytesTransferred));
                         if (bytesTransferred<0) {
                             mStop = true;
                         }
@@ -378,6 +380,7 @@ public class UsbController {
         }
     }
 
+    //receive data
     public void receive () {
         if (mStop) {
             return;
@@ -499,16 +502,16 @@ public class UsbController {
         @Override
         public void run() {
             //queue up
-            ByteBuffer buffer = ByteBuffer.allocate(1);
+            final ByteBuffer buffer = ByteBuffer.allocate(22);
 
             readingRequest = new UsbRequest();
 
-            //intialize an asynchronous request for USB data from the Arduino
+            //intialize an asynchronous request for USB data from the connected device
             readingRequest.initialize(connection, in);
 
             //wait for data to become available to receive
             while (true) {
-                if (readingRequest.queue(buffer, 1)) {
+                if (readingRequest.queue(buffer, 22)) {
                     Log.d("QUEUE", "WAITING FOR DATA...");
                     connection.requestWait();
 
@@ -524,8 +527,8 @@ public class UsbController {
                         }
                     });
 
-                    // wait for this request to be completed
-                    // at this point buffer contains the data received
+                    //wait for this request to be completed
+                    //at this point buffer contains the data received
                     final byte firstChar = buffer.get(0);
                     Log.d("BUFFER", String.format("Got: Hex value %x", firstChar));
 
@@ -534,7 +537,8 @@ public class UsbController {
                         activity.runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                ((TextView)activity.findViewById(R.id.test)).append(String.format("%c ", firstChar));
+                                //((TextView)activity.findViewById(R.id.test)).append(String.format("%c ", firstChar));
+                                ((TextView)activity.findViewById(R.id.test)).append(new String(buffer.array()));
                             }
                         });
                     }

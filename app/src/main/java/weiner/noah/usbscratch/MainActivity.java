@@ -150,7 +150,11 @@ public class MainActivity extends AppCompatActivity {
                     Toast.makeText(MainActivity.this, "Please open a connection first using List Devices button.", Toast.LENGTH_SHORT).show();
                     return;
                 }
+
+                //receive data from the USB device
+                assert usbController != null;
                 usbController.receive();
+
                 if (usbController.dataIn.length!=0) {
                     Toast.makeText(MainActivity.this, String.format("Received: %x", usbController.dataIn[0]), Toast.LENGTH_SHORT).show();
                 }
