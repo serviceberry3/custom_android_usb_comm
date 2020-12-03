@@ -159,22 +159,32 @@ public class UsbController {
             //open communication with the device
             connection = mUsbManager.openDevice(device);
 
-            UsbInterface usb2serial = device.getInterface(1);
+            Log.i("USBTAG", "Getting interface...");
+            UsbInterface usb2serial = device.getInterface(0);
+            Log.i("USBTAG", "Interface gotten");
+
+
+            Log.i("USBTAG", "Claiming interface...");
             //claim interface 1 (Usb-serial) of the Duino, disconnecting kernel driver if necessary
             if (!connection.claimInterface(usb2serial, true)) {
                 //if we can't claim exclusive access to this UART line, then FAIL
                 Log.e("CONNECTION", "Failed to claim exclusive access to the USB interface.");
                 return;
             }
+            Log.i("USBTAG", "Interface claimed");
 
 
             //USB CONTROL INITIALIZATION
 
+
+            Log.i("USBTAG", "Control transfer start...");
             //set control line state, as defined in https://cscott.net/usb_dev/data/devclass/usbcdc11.pdf, p. 51
-            connection.controlTransfer(0x21, 34, 0, 0, null, 0, 0);
+            connection.controlTransfer(0x21, 34, 0, 0, null, 0, 10);
 
             //set line encoding: 9600 bits/sec, 8data bits, no parity bit, 1 stop bit for UART
-            connection.controlTransfer(0x21, 32, 0, 0, new byte[] { (byte) 0x80, 0x25, 0x00, 0x00, 0x00, 0x00, 0x08 }, 7, 0);
+            connection.controlTransfer(0x21, 32, 0, 0, new byte[] { (byte) 0x80, 0x25, 0x00, 0x00, 0x00, 0x00, 0x08 }, 7, 10);
+
+            Log.i("USBTAG", "Control transfer end...");
 
             in = null;
             out = null;
